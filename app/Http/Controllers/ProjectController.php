@@ -25,7 +25,7 @@ class ProjectController extends Controller
         $name = is_string($name) ? trim($name) : '';
 
         $projects = Project::query()
-            ->with('users.company')
+            ->with('users')
             ->when($name !== '', function (Builder $query) use ($name): void {
                 $query->whereLike('name', '%'.$name.'%');
             })
@@ -56,7 +56,7 @@ class ProjectController extends Controller
 
     public function show(Project $project): JsonResponse
     {
-        $project->load('users.company');
+        $project->load('users');
 
         return ApiResponse::success(new ProjectResource($project), 'Project retrieved.');
     }

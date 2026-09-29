@@ -21,7 +21,7 @@ class ProjectResource extends JsonResource
             'name' => $this->name,
             'description' => $this->description,
             'created_at' => $this->created_at,
-            'assigned_users' => UserResource::collection($this->users),
+            'assigned_users' => AssignedUserResource::collection($this->users),
         ];
     }
 }

@@ -194,8 +194,7 @@ Success `200`:
                 {
                     "id": 2,
                     "name": "Luis Ortega",
-                    "phone": "+15555550102",
-                    "company": { "id": 1, "name": "Acme", "slug": "acme" }
+                    "phone": "+15555550102"
                 }
             ]
         }
@@ -210,6 +209,8 @@ Success `200`:
     }
 }
 ```
+
+Each `assigned_users` entry is `id`, `name`, and `phone` only. Assignment allows users from the project's company alone, so the company object is not repeated on every assignee. Create, update, and assign return this same shape.
 
 Error `401`: same `Unauthenticated.` body as `GET /api/user`.
 
@@ -250,7 +251,13 @@ Success `200`:
         "name": "Launch",
         "description": "Ship it",
         "created_at": "2026-09-29T18:05:00.000000Z",
-        "assigned_users": []
+        "assigned_users": [
+            {
+                "id": 2,
+                "name": "Luis Ortega",
+                "phone": "+15555550102"
+            }
+        ]
     }
 }
 ```
@@ -314,7 +321,31 @@ Request (all fields optional; send at least the fields to change):
 
 `name`, when present, is a required string (max 255). `description` may be null. `user_ids`, when present, replaces the assignee list; omit the key to leave assignees unchanged. Same-company rule as create. `company_id` is prohibited.
 
-Success `200`: `"message": "Project updated."` and `data` is the project resource (same shape as show).
+Success `200`: `"message": "Project updated."` and `data` is the project resource. `assigned_users` uses the trimmed shape (`id`, `name`, `phone`):
+
+```json
+{
+    "message": "Project updated.",
+    "data": {
+        "id": 1,
+        "name": "Renamed",
+        "description": "Keep me",
+        "created_at": "2026-09-29T18:00:00.000000Z",
+        "assigned_users": [
+            {
+                "id": 1,
+                "name": "Maya Chen",
+                "phone": "+15555550101"
+            },
+            {
+                "id": 2,
+                "name": "Luis Ortega",
+                "phone": "+15555550102"
+            }
+        ]
+    }
+}
+```
 
 Error `404`: another company’s project id, same body as show. A bad `user_ids` entry is `422` with `"The selected user is invalid."`
 
@@ -399,7 +430,7 @@ The tenant always comes from a user record. OTP request and verify load `User` b
 
 ## Authentication approach
 
-Passwordless. `POST /api/otp/verify` is the only place a Sanctum personal access token is issued, and only after the code checks out. The token name is `otp`. Later requests send it as a Bearer token. Responses are JSON through Eloquent API resources (`UserResource`, `AuthTokenResource`, `ProjectResource`), wrapped in the envelope.
+Passwordless. `POST /api/otp/verify` is the only place a Sanctum personal access token is issued, and only after the code checks out. The token name is `otp`. Later requests send it as a Bearer token. Responses are JSON through Eloquent API resources (`UserResource`, `AssignedUserResource`, `AuthTokenResource`, `ProjectResource`), wrapped in the envelope.
 
 There is no registration endpoint. Users are created by seeders (or by an operator writing rows). The API does not create users.
 

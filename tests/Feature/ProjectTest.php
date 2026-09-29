@@ -275,7 +275,7 @@ class ProjectTest extends TestCase
         $response->assertJsonPath('data.assigned_users.0.id', $colleague->id);
         $response->assertJsonPath('data.assigned_users.0.name', $colleague->name);
         $response->assertJsonPath('data.assigned_users.0.phone', $colleague->phone);
-        $response->assertJsonPath('data.assigned_users.0.company.id', $company->id);
+        $response->assertJsonMissingPath('data.assigned_users.0.company');
         $this->assertDatabaseHas('project_user', [
             'project_id' => $project->id,
             'user_id' => $colleague->id,

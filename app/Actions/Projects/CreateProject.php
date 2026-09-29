@@ -31,7 +31,7 @@ class CreateProject
                 $project->users()->sync($users->modelKeys());
             }
 
-            return $project->load('users.company');
+            return $project->load('users');
         });
     }
 }

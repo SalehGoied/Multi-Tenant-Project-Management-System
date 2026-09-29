@@ -17,6 +17,6 @@ class AssignProjectUser
 
         $project->users()->syncWithoutDetaching($users->modelKeys());
 
-        return $project->load('users.company');
+        return $project->load('users');
     }
 }
