@@ -127,7 +127,7 @@ All of these use `auth:sanctum` then `ResolveCompany`:
 
 **Design decisions**
 
-- Controllers validate through form requests, call one action, and return `ProjectResource` (204 on delete).
+- Controllers validate through form requests, call one action, and return `ProjectResource`. Delete and unassign return 204 in this phase. Phase 6 replaces that with 200 so the body can carry the standard envelope.
 - Create and update accept `name`, `description`, and `user_ids`. They do not accept `company_id`. The trait fills `company_id` from the company the middleware bound.
 - The action resolves assignees with `User::where('company_id', $companyId)` and the given ids. `User` is unscoped, so this `where` is required. Any missing id is a 422. The message does not reveal whether that id exists in another company.
 - `{project}` is resolved under the scope, so another company's id is 404.
@@ -151,7 +151,87 @@ Update:
 - Phones are globally unique, fixed, and documented in the README so OTP can be tried locally. Users have no email and no password.
 - The seeder sets `company_id` on each user itself. It binds `CurrentCompany` while creating that company's projects so the trait can fill `company_id`. It does not seed `otp_codes`.
 
-## Phase 6 — Tests
+## Phase 6 — API response standardization & error handling
+
+Goal: every JSON response, success or error, follows one shape. No endpoint returns a raw Laravel or Symfony exception, stack trace, or file path. That includes 404s for unknown routes and unexpected 500s, and it does not change when `APP_DEBUG` is true.
+
+Create:
+
+- `app/Http/Responses/ApiResponse.php`
+
+Update:
+
+- `bootstrap/app.php`
+- `app/Http/Controllers/ProjectController.php`
+- `app/Http/Controllers/Auth/OtpController.php`
+- `routes/api.php` (`GET /api/user`)
+
+**Success shape**
+
+```json
+{
+  "message": "string",
+  "data": {},
+  "meta": {
+    "pagination": {
+      "current_page": 1,
+      "per_page": 15,
+      "total": 1,
+      "last_page": 1
+    }
+  }
+}
+```
+
+`data` is an object, an array, or `null`. `meta` is present only on a paginated response. It is omitted otherwise. `meta.pagination` carries `current_page`, `per_page`, `total`, and `last_page`. Pagination links and the request path are not included.
+
+**Error shape**
+
+```json
+{
+  "message": "string",
+  "errors": null
+}
+```
+
+`errors` is an object of `field => [messages]` for validation, and `null` for every other error.
+
+**Status codes**
+
+Each of these returns the error shape and no debug fields, regardless of `APP_DEBUG`:
+
+- 401 — missing or invalid token. Message: `Unauthenticated.`
+- 403 — authenticated but not allowed. Message is the one this app threw (for example the company check), or `This action is unauthorized.` when the exception message is empty.
+- 404 — missing model and unknown route. Message is always `Resource not found.` The route path and the model class are not included.
+- 422 — validation. `errors` is filled from the exception. The `message` is the validation summary.
+- 429 — `otp-request` throttle. Message: `Too Many Attempts.` Rate-limit headers set by the middleware stay on the response.
+- 500 — anything unexpected. Message is always `Something went wrong.` The real exception is still reported by Laravel's logger. The response never includes it.
+
+Other HTTP statuses under `/api` (for example 405) use the same error shape and a status phrase that does not include the route. 5xx messages stay `Something went wrong.`
+
+**Design decisions**
+
+- `ApiResponse::success($data, $message, $status = 200, $meta = null)` and `ApiResponse::error($message, $errors = null, $status = 422)` return `JsonResponse` in the shapes above. Resources stay the `data` payload (`ProjectResource`, `UserResource`, `AuthTokenResource`). They are wrapped, not replaced, and they are not given a second `data` key.
+- `GET /api/projects` puts the resource collection in `data` and pagination in `meta.pagination`.
+- `DELETE /api/projects/{project}` and `DELETE /api/projects/{project}/users/{user}` return 200 with a success message and `data: null`. 204 cannot carry the envelope. This replaces the Phase 4 empty response.
+- `POST /api/otp/request` stays 202. Its existing message is the success `message`, and `data` is `null`.
+- Exception rendering is registered in `bootstrap/app.php` `withExceptions`. It applies when `$request->expectsJson()` or the path is under `/api`, including unmatched routes and exceptions thrown outside a controller. Other requests keep Laravel's default HTML error pages.
+- Laravel rewrites `ModelNotFoundException` to `NotFoundHttpException` and `AuthorizationException` to `AccessDeniedHttpException` before render callbacks run. The handler matches those prepared types, so a missing model and an unknown route share the generic 404. `ValidationException`, `AuthenticationException`, and `ThrottleRequestsException` are matched as themselves.
+- The handler does not replace Laravel's reporter. Unexpected exceptions are still written to `storage/logs/laravel.log`. The JSON body does not read `APP_DEBUG`.
+
+**Success messages**
+
+- `GET /api/projects` — `Projects retrieved.`
+- `POST /api/projects` — `Project created.`
+- `GET /api/projects/{project}` — `Project retrieved.`
+- `PATCH /api/projects/{project}` — `Project updated.`
+- `DELETE /api/projects/{project}` — `Project deleted.`
+- `POST /api/projects/{project}/users` — `User assigned to project.`
+- `DELETE /api/projects/{project}/users/{user}` — `User removed from project.`
+- `POST /api/otp/verify` — `Authenticated.`
+- `GET /api/user` — `Authenticated user retrieved.`
+
+## Phase 7 — Tests
 
 Create:
 
@@ -167,6 +247,7 @@ Update:
 **Design decisions**
 
 - Feature tests hit the HTTP API. Use `RefreshDatabase` and the existing in-memory SQLite setup. Fake `OtpSender` and read the plaintext from the fake.
+- Assert the Phase 6 envelope. Success bodies have `message` and `data`, plus `meta.pagination` on the project index. Error bodies have `message` and `errors`. Delete and unassign expect 200 with `data: null`, not 204. Unknown routes and unexpected failures expect the generic 404 and 500 messages, with no exception class, path, or trace.
 - Cover missing auth (401), validation (422), the happy path, and the persisted row.
 - OTP: the response body has no code; the database stores a hash; an unknown phone returns the same 202 and writes no row; a second verify fails; an expired code fails; the fifth wrong guess consumes the code; the phone+IP throttle returns 429.
 - A phone that belongs to company B is found while no company is bound. After verify, the token's user is that company, and `GET /api/projects` returns only that company's projects.
@@ -174,7 +255,7 @@ Update:
 - Assigning a user from the other company returns 422.
 - Tests never call `withoutGlobalScopes()`, and they never send a company header.
 
-## Phase 7 — README
+## Phase 8 — README
 
 Update:
 

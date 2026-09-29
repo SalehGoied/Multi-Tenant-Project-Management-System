@@ -44,6 +44,16 @@ One company per user, and no roles beyond membership in that company. No self-re
 
 Why: the task covers company users, their projects, and phone OTP.
 
+## API responses
+
+Every JSON response uses one envelope. Success is `message`, `data` (object, array, or `null`), and `meta` only when the payload is paginated. Paginated `meta` is `{ "pagination": { "current_page", "per_page", "total", "last_page" } }`. Errors are `message` and `errors` (`field => [messages]` for validation, `null` otherwise).
+
+`401`, `403`, `404`, `422`, `429`, and `500` all use that error envelope. `404` is always `Resource not found.` for a missing model and for an unknown route, so the body never contains a model class or a path. `500` is always `Something went wrong.` The real exception is still reported through Laravel's logger. `APP_DEBUG` does not add a trace, file, or exception class to the JSON. This rendering applies to `/api` and to any request that expects JSON. Web requests keep Laravel's HTML error pages.
+
+Delete and unassign return `200` with `data: null`. A `204` cannot carry the envelope. Eloquent API resources remain the `data` payload; the envelope wraps them.
+
+Why: clients can branch on status and one shape, and a debug flag must not turn an API response into a stack trace.
+
 ## Scalability
 
 At 10,000 companies and millions of rows, keep this shared database. Tenant lists use the `company_id` composite index and cursor pagination. OTP delivery moves onto a queue. The rate limiter uses a shared cache (Redis) when more than one app server is running. Assignee relations are eager-loaded. A database per tenant is a later change only if physical isolation becomes a requirement; `company_id` is the shard key.

@@ -11,13 +11,13 @@ use App\Http\Requests\Projects\AssignProjectUserRequest;
 use App\Http\Requests\Projects\StoreProjectRequest;
 use App\Http\Requests\Projects\UpdateProjectRequest;
 use App\Http\Resources\ProjectResource;
+use App\Http\Responses\ApiResponse;
 use App\Models\Project;
-use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
-use Illuminate\Http\Response;
+use Illuminate\Http\JsonResponse;
 
 class ProjectController extends Controller
 {
-    public function index(): AnonymousResourceCollection
+    public function index(): JsonResponse
     {
         $projects = Project::query()
             ->with('users.company')
@@ -25,48 +25,59 @@ class ProjectController extends Controller
             ->orderByDesc('id')
             ->paginate();
 
-        return ProjectResource::collection($projects);
+        return ApiResponse::success(
+            ProjectResource::collection($projects),
+            'Projects retrieved.',
+            meta: [
+                'pagination' => [
+                    'current_page' => $projects->currentPage(),
+                    'per_page' => $projects->perPage(),
+                    'total' => $projects->total(),
+                    'last_page' => $projects->lastPage(),
+                ],
+            ],
+        );
     }
 
-    public function store(StoreProjectRequest $request, CreateProject $createProject): ProjectResource
+    public function store(StoreProjectRequest $request, CreateProject $createProject): JsonResponse
     {
         $project = $createProject->handle($request->validated());
 
-        return new ProjectResource($project);
+        return ApiResponse::success(new ProjectResource($project), 'Project created.');
     }
 
-    public function show(Project $project): ProjectResource
+    public function show(Project $project): JsonResponse
     {
         $project->load('users.company');
 
-        return new ProjectResource($project);
+        return ApiResponse::success(new ProjectResource($project), 'Project retrieved.');
     }
 
-    public function update(UpdateProjectRequest $request, Project $project, UpdateProject $updateProject): ProjectResource
+    public function update(UpdateProjectRequest $request, Project $project, UpdateProject $updateProject): JsonResponse
     {
         $project = $updateProject->handle($project, $request->validated());
 
-        return new ProjectResource($project);
+        return ApiResponse::success(new ProjectResource($project), 'Project updated.');
     }
 
-    public function destroy(Project $project, DeleteProject $deleteProject): Response
+    public function destroy(Project $project, DeleteProject $deleteProject): JsonResponse
     {
         $deleteProject->handle($project);
 
-        return response()->noContent();
+        return ApiResponse::success(null, 'Project deleted.');
     }
 
-    public function assign(AssignProjectUserRequest $request, Project $project, AssignProjectUser $assignProjectUser): ProjectResource
+    public function assign(AssignProjectUserRequest $request, Project $project, AssignProjectUser $assignProjectUser): JsonResponse
     {
         $project = $assignProjectUser->handle($project, (int) $request->validated('user_id'));
 
-        return new ProjectResource($project);
+        return ApiResponse::success(new ProjectResource($project), 'User assigned to project.');
     }
 
-    public function unassign(Project $project, int $user, UnassignProjectUser $unassignProjectUser): Response
+    public function unassign(Project $project, int $user, UnassignProjectUser $unassignProjectUser): JsonResponse
     {
         $unassignProjectUser->handle($project, $user);
 
-        return response()->noContent();
+        return ApiResponse::success(null, 'User removed from project.');
     }
 }

@@ -3,6 +3,8 @@
 use App\Http\Controllers\Auth\OtpController;
 use App\Http\Controllers\ProjectController;
 use App\Http\Resources\UserResource;
+use App\Http\Responses\ApiResponse;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -12,8 +14,8 @@ Route::post('/otp/request', [OtpController::class, 'request'])
 Route::post('/otp/verify', [OtpController::class, 'verify']);
 
 Route::middleware(['auth:sanctum', 'resolve.company'])->group(function (): void {
-    Route::get('/user', function (Request $request): UserResource {
-        return new UserResource($request->user());
+    Route::get('/user', function (Request $request): JsonResponse {
+        return ApiResponse::success(new UserResource($request->user()), 'Authenticated user retrieved.');
     });
 
     Route::apiResource('projects', ProjectController::class);

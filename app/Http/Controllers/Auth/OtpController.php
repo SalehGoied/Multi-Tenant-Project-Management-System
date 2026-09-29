@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Auth\RequestOtpRequest;
 use App\Http\Requests\Auth\VerifyOtpRequest;
 use App\Http\Resources\AuthTokenResource;
+use App\Http\Responses\ApiResponse;
 use Illuminate\Http\JsonResponse;
 
 class OtpController extends Controller
@@ -16,18 +17,20 @@ class OtpController extends Controller
     {
         $requestOtp->handle((string) $request->validated('phone'));
 
-        return response()->json([
-            'message' => 'If an account exists for that phone number, a verification code has been sent.',
-        ], JsonResponse::HTTP_ACCEPTED);
+        return ApiResponse::success(
+            null,
+            'If an account exists for that phone number, a verification code has been sent.',
+            JsonResponse::HTTP_ACCEPTED,
+        );
     }
 
-    public function verify(VerifyOtpRequest $request, VerifyOtp $verifyOtp): AuthTokenResource
+    public function verify(VerifyOtpRequest $request, VerifyOtp $verifyOtp): JsonResponse
     {
         $token = $verifyOtp->handle(
             (string) $request->validated('phone'),
             (string) $request->validated('code'),
         );
 
-        return new AuthTokenResource($token);
+        return ApiResponse::success(new AuthTokenResource($token), 'Authenticated.');
     }
 }

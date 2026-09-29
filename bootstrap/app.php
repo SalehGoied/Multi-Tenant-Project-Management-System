@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\ResolveCompany;
+use App\Http\Responses\ApiResponse;
 use App\Support\CurrentCompany;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -35,9 +36,20 @@ $app = Application::configure(basePath: dirname(__DIR__))
         );
     })
     ->withExceptions(function (Exceptions $exceptions): void {
+        // Null defers to Laravel's renderer, which keeps HTML error pages for non-API requests.
+        // ModelNotFoundException and AuthorizationException are rewritten to HTTP exceptions
+        // before this callback, so ApiResponse matches those prepared types.
         $exceptions->shouldRenderJsonWhen(
-            fn (Request $request) => $request->is('api/*') || $request->expectsJson(),
+            fn (Request $request) => $request->is('api', 'api/*') || $request->expectsJson(),
         );
+
+        $exceptions->render(function (Throwable $e, Request $request) {
+            if (! $request->is('api', 'api/*') && ! $request->expectsJson()) {
+                return null;
+            }
+
+            return ApiResponse::fromException($e);
+        });
     })->create();
 
 $app->scoped(CurrentCompany::class);
