@@ -2,24 +2,33 @@
 
 ## Overview
 
-This is a multi-tenant project management HTTP API. Users sign in with a phone one-time password and then create and manage projects for their company. The stack is Laravel 13.33, PHP 8.3, and SQLite for local development. Authentication uses Laravel Sanctum personal access tokens. There is no web UI.
+This is a multi-tenant project management HTTP API. Users sign in with a phone one-time password and then create and manage projects for their company. The stack is Laravel 13.33, PHP 8.3, and MySQL for local development. Authentication uses Laravel Sanctum personal access tokens. There is no web UI.
 
 ## Setup / Run locally
 
-From a clone of this repository:
+From a clone of this repository, create the MySQL database, then install and migrate:
 
 ```bash
 composer install
 cp .env.example .env
 php artisan key:generate
-php -r "file_exists('database/database.sqlite') || touch('database/database.sqlite');"
+mysql -u root -e "CREATE DATABASE multi_tenant_project_management"
 php artisan migrate:fresh --seed
 php artisan serve
 ```
 
-`.env.example` already sets `DB_CONNECTION=sqlite`. The empty `database/database.sqlite` file has to exist before migrate; it is not committed. `php artisan serve` listens on `http://127.0.0.1:8000`.
+`.env.example` sets `DB_CONNECTION=mysql`, host `127.0.0.1`, port `3306`, database `multi_tenant_project_management`, and user `root`. Fill in `DB_PASSWORD` before migrating when that account has a password. Any MySQL client can create the database; the `mysql` command above is one way.
+
+SQLite remains available when you do not want a MySQL server. Set `DB_CONNECTION=sqlite` in `.env`, create an empty `database/database.sqlite` file (it is not committed), and run the same migrate command:
+
+```bash
+php -r "file_exists('database/database.sqlite') || touch('database/database.sqlite');"
+```
+
+`php artisan serve` listens on `http://127.0.0.1:8000`.
 
 The seeder creates two companies and four users. Phones are E.164 and globally unique. There is no email and no password.
+
 
 | Name        | Phone        | Company           |
 | ----------- | ------------ | ----------------- |
@@ -27,6 +36,7 @@ The seeder creates two companies and four users. Phones are E.164 and globally u
 | Luis Ortega | +15555550102 | Acme (`acme`)     |
 | Priya Shah  | +15555550103 | Globex (`globex`) |
 | Jonah Berg  | +15555550104 | Globex (`globex`) |
+
 
 Each company also gets two projects, with assignees drawn only from that company.
 
@@ -47,6 +57,10 @@ curl -s -X POST http://127.0.0.1:8000/api/otp/verify \
 ```
 
 Send the returned token on later requests as `Authorization: Bearer {token}`.
+
+### Postman
+
+Import `docs/postman_collection.json` and `docs/postman_environment.json`. Select the environment so `{{base_url}}` is `http://127.0.0.1:8000` and `{{token}}` starts empty. Run **Request OTP** for Maya Chen (`+15555550101`), copy the code from `storage/logs/laravel.log` into **Verify OTP** (the saved body uses `123456` as a placeholder), then send that request. Its test script stores the returned token in `{{token}}`. **Create project** stores `{{project_id}}` the same way. The later project requests use those variables, so the folder can run from OTP through assign, unassign, and delete without copying ids by hand.
 
 ## API reference
 
@@ -163,7 +177,7 @@ Error `401`:
 
 Auth: Bearer token.
 
-Request body: none. Optional query `page` (default 1). Page size is 15. Order is `created_at` descending, then `id` descending. Only the token user's company is listed.
+Request body: none. Optional query `page` (default 1). Optional query `name` is a string of at most 255 characters. When it is present and not blank, the list keeps projects whose name contains that text, case-insensitive. `GET /api/projects?name=web` matches "Website redesign" and does not include another company's project with the same substring. A missing `name` lists every project in the company. Page size is 15. Order is `created_at` descending, then `id` descending. Only the token user's company is listed.
 
 Success `200`:
 
@@ -198,6 +212,17 @@ Success `200`:
 ```
 
 Error `401`: same `Unauthenticated.` body as `GET /api/user`.
+
+Error `422` (`name` longer than 255 characters, or not a string):
+
+```json
+{
+    "message": "Validation failed.",
+    "errors": {
+        "name": ["The name field must not be greater than 255 characters."]
+    }
+}
+```
 
 ### `POST /api/projects`
 
@@ -422,14 +447,16 @@ Error:
 
 These statuses all use that error shape. The body never includes a stack trace, file path, exception class, or model name, including when `APP_DEBUG` is true:
 
-| Status | `message`                                                                                                                            |
-| ------ | ------------------------------------------------------------------------------------------------------------------------------------ |
-| 401    | `Unauthenticated.`                                                                                                                   |
+
+| Status | `message`                                                                                                                                   |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| 401    | `Unauthenticated.`                                                                                                                          |
 | 403    | The message this app threw (for example `User is not assigned to a company.`), or `This action is unauthorized.` when that message is empty |
-| 404    | `Resource not found.` for a missing model and for an unknown route                                                                   |
-| 422    | `Validation failed.` with `errors` filled                                                                                            |
-| 429    | `Too Many Attempts.` Rate-limit headers stay on the response                                                                         |
-| 500    | `Something went wrong.` The real exception is still written to the log                                                               |
+| 404    | `Resource not found.` for a missing model and for an unknown route                                                                          |
+| 422    | `Validation failed.` with `errors` filled                                                                                                   |
+| 429    | `Too Many Attempts.` Rate-limit headers stay on the response                                                                                |
+| 500    | `Something went wrong.` The real exception is still written to the log                                                                      |
+
 
 Other statuses under `/api` (for example 405) use the same shape and a status phrase that does not include the route. 5xx messages stay `Something went wrong.` This rendering applies to `/api` and to any request that expects JSON. Non-API web requests keep Laravel’s HTML error pages.
 
@@ -455,4 +482,4 @@ or:
 php artisan test
 ```
 
-Current status: 38 tests, 223 assertions, passing. Feature tests hit the HTTP API against in-memory SQLite. They cover tenant isolation (the scope returns nothing until a company is bound, and it fills `company_id` on create), the OTP lifecycle (hash at rest, no code in the response, unknown phones, single use, expiry, the fifth failed guess, the phone-and-IP throttle), cross-tenant project access (`404` on show, update, and delete, and `422` when assigning another company’s user), and the response envelope (including generic `404` and `500` bodies with debug turned on). Tests do not call `withoutGlobalScopes()` and do not send a company header.
+Current status: 41 tests, 232 assertions, passing. Feature tests hit the HTTP API against in-memory SQLite. They cover tenant isolation (the scope returns nothing until a company is bound, and it fills `company_id` on create), the OTP lifecycle (hash at rest, no code in the response, unknown phones, single use, expiry, the fifth failed guess, the phone-and-IP throttle), cross-tenant project access (`404` on show, update, and delete, and `422` when assigning another company’s user), project name filtering (a substring matches only the current company), and the response envelope (including generic `404` and `500` bodies with debug turned on). Tests do not call `withoutGlobalScopes()` and do not send a company header.

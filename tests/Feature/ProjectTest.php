@@ -83,6 +83,79 @@ class ProjectTest extends TestCase
         $response->assertJsonMissingPath('errors');
     }
 
+    public function test_index_filters_projects_by_a_case_insensitive_name_substring(): void
+    {
+        $company = Company::factory()->create();
+        $user = User::factory()->for($company)->create();
+
+        Project::factory()->for($company)->create([
+            'name' => 'Website redesign',
+            'created_at' => '2026-01-01 00:00:00',
+            'updated_at' => '2026-01-01 00:00:00',
+        ]);
+        Project::factory()->for($company)->create([
+            'name' => 'Web analytics',
+            'created_at' => '2026-02-01 00:00:00',
+            'updated_at' => '2026-02-01 00:00:00',
+        ]);
+        Project::factory()->for($company)->create([
+            'name' => 'Mobile checkout',
+            'created_at' => '2026-03-01 00:00:00',
+            'updated_at' => '2026-03-01 00:00:00',
+        ]);
+
+        $otherCompany = Company::factory()->create();
+        Project::factory()->for($otherCompany)->create([
+            'name' => 'Website rebuild',
+            'created_at' => '2026-04-01 00:00:00',
+            'updated_at' => '2026-04-01 00:00:00',
+        ]);
+
+        $response = $this->withToken($user->createToken('test')->plainTextToken)
+            ->getJson('/api/projects?name=WEB');
+
+        $response->assertOk();
+        $response->assertJsonPath('message', 'Projects retrieved.');
+        $response->assertJsonPath('meta.pagination.total', 2);
+        $response->assertJsonPath('meta.pagination.current_page', 1);
+        $this->assertSame(
+            ['Web analytics', 'Website redesign'],
+            collect($response->json('data'))->pluck('name')->all(),
+        );
+    }
+
+    public function test_index_returns_422_when_name_is_longer_than_255_characters(): void
+    {
+        $user = User::factory()->create();
+
+        $response = $this->withToken($user->createToken('test')->plainTextToken)
+            ->getJson('/api/projects?name='.str_repeat('a', 256));
+
+        $response->assertUnprocessable();
+        $response->assertExactJson([
+            'message' => self::VALIDATION_MESSAGE,
+            'errors' => [
+                'name' => ['The name field must not be greater than 255 characters.'],
+            ],
+        ]);
+    }
+
+    public function test_index_returns_422_when_name_is_not_a_string(): void
+    {
+        $user = User::factory()->create();
+
+        $response = $this->withToken($user->createToken('test')->plainTextToken)
+            ->getJson('/api/projects?name[]=web');
+
+        $response->assertUnprocessable();
+        $response->assertExactJson([
+            'message' => self::VALIDATION_MESSAGE,
+            'errors' => [
+                'name' => ['The name field must be a string.'],
+            ],
+        ]);
+    }
+
     public function test_show_returns_the_project(): void
     {
         $company = Company::factory()->create();

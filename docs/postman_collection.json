@@ -1,0 +1,356 @@
+{
+    "info": {
+        "name": "Multi-tenant project management API",
+        "description": "OTP sign-in and project CRUD for one company. Import docs/postman_environment.json, run Request OTP, paste the code from storage/logs/laravel.log into Verify OTP, then run the rest. Verify OTP saves {{token}}. Create project saves {{project_id}}.\n\nSeeded phones (fresh migrate:fresh --seed): Maya Chen +15555550101 (Acme, user 1), Luis Ortega +15555550102 (Acme, user 2), Priya Shah +15555550103 (Globex, user 3), Jonah Berg +15555550104 (Globex, user 4).",
+        "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+    },
+    "variable": [
+        {
+            "key": "base_url",
+            "value": "http://127.0.0.1:8000"
+        },
+        {
+            "key": "token",
+            "value": ""
+        },
+        {
+            "key": "project_id",
+            "value": ""
+        }
+    ],
+    "item": [
+        {
+            "name": "Request OTP",
+            "request": {
+                "auth": {
+                    "type": "noauth"
+                },
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "Accept",
+                        "value": "application/json"
+                    },
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n    \"phone\": \"+15555550101\"\n}",
+                    "options": {
+                        "raw": {
+                            "language": "json"
+                        }
+                    }
+                },
+                "url": "{{base_url}}/api/otp/request",
+                "description": "Maya Chen (+15555550101), Acme. Other seeded phones: Luis Ortega +15555550102, Priya Shah +15555550103, Jonah Berg +15555550104. The plaintext code is written to storage/logs/laravel.log and is not in the response."
+            },
+            "response": []
+        },
+        {
+            "name": "Verify OTP",
+            "event": [
+                {
+                    "listen": "test",
+                    "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                            "const json = pm.response.json();",
+                            "pm.test('Verify OTP stores the token', function () {",
+                            "    pm.expect(json.data).to.be.an('object');",
+                            "    pm.expect(json.data.token).to.be.a('string').and.not.empty;",
+                            "    pm.collectionVariables.set('token', json.data.token);",
+                            "});"
+                        ]
+                    }
+                }
+            ],
+            "request": {
+                "auth": {
+                    "type": "noauth"
+                },
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "Accept",
+                        "value": "application/json"
+                    },
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n    \"phone\": \"+15555550101\",\n    \"code\": \"123456\"\n}",
+                    "options": {
+                        "raw": {
+                            "language": "json"
+                        }
+                    }
+                },
+                "url": "{{base_url}}/api/otp/verify",
+                "description": "Replace 123456 with the code from the log for +15555550101. A successful response stores data.token in the {{token}} collection variable."
+            },
+            "response": []
+        },
+        {
+            "name": "Get authenticated user",
+            "request": {
+                "auth": {
+                    "type": "bearer",
+                    "bearer": [
+                        {
+                            "key": "token",
+                            "value": "{{token}}",
+                            "type": "string"
+                        }
+                    ]
+                },
+                "method": "GET",
+                "header": [
+                    {
+                        "key": "Accept",
+                        "value": "application/json"
+                    }
+                ],
+                "url": "{{base_url}}/api/user",
+                "description": "Requires the token saved by Verify OTP."
+            },
+            "response": []
+        },
+        {
+            "name": "List projects",
+            "request": {
+                "auth": {
+                    "type": "bearer",
+                    "bearer": [
+                        {
+                            "key": "token",
+                            "value": "{{token}}",
+                            "type": "string"
+                        }
+                    ]
+                },
+                "method": "GET",
+                "header": [
+                    {
+                        "key": "Accept",
+                        "value": "application/json"
+                    }
+                ],
+                "url": "{{base_url}}/api/projects?name=web",
+                "description": "Optional name query: case-insensitive partial match, still limited to the token user's company. ?name=web matches the seeded Acme project \"Website redesign\". Omit name to list every project in the company. Page size is 15, ordered by created_at desc, then id desc."
+            },
+            "response": []
+        },
+        {
+            "name": "Create project",
+            "event": [
+                {
+                    "listen": "test",
+                    "script": {
+                        "type": "text/javascript",
+                        "exec": [
+                            "const json = pm.response.json();",
+                            "pm.test('Create project stores the project id', function () {",
+                            "    pm.expect(json.data).to.be.an('object');",
+                            "    pm.expect(json.data.id).to.be.a('number');",
+                            "    pm.collectionVariables.set('project_id', String(json.data.id));",
+                            "});"
+                        ]
+                    }
+                }
+            ],
+            "request": {
+                "auth": {
+                    "type": "bearer",
+                    "bearer": [
+                        {
+                            "key": "token",
+                            "value": "{{token}}",
+                            "type": "string"
+                        }
+                    ]
+                },
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "Accept",
+                        "value": "application/json"
+                    },
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n    \"name\": \"Launch\",\n    \"description\": \"Ship it\",\n    \"user_ids\": [2]\n}",
+                    "options": {
+                        "raw": {
+                            "language": "json"
+                        }
+                    }
+                },
+                "url": "{{base_url}}/api/projects",
+                "description": "user_ids 2 is Luis Ortega (+15555550102) after migrate:fresh --seed, same company as Maya Chen. The test script stores data.id in {{project_id}}."
+            },
+            "response": []
+        },
+        {
+            "name": "Show project",
+            "request": {
+                "auth": {
+                    "type": "bearer",
+                    "bearer": [
+                        {
+                            "key": "token",
+                            "value": "{{token}}",
+                            "type": "string"
+                        }
+                    ]
+                },
+                "method": "GET",
+                "header": [
+                    {
+                        "key": "Accept",
+                        "value": "application/json"
+                    }
+                ],
+                "url": "{{base_url}}/api/projects/{{project_id}}",
+                "description": "Uses {{project_id}} saved by Create project."
+            },
+            "response": []
+        },
+        {
+            "name": "Update project",
+            "request": {
+                "auth": {
+                    "type": "bearer",
+                    "bearer": [
+                        {
+                            "key": "token",
+                            "value": "{{token}}",
+                            "type": "string"
+                        }
+                    ]
+                },
+                "method": "PATCH",
+                "header": [
+                    {
+                        "key": "Accept",
+                        "value": "application/json"
+                    },
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n    \"name\": \"Renamed\",\n    \"description\": \"Keep me\",\n    \"user_ids\": [1, 2]\n}",
+                    "options": {
+                        "raw": {
+                            "language": "json"
+                        }
+                    }
+                },
+                "url": "{{base_url}}/api/projects/{{project_id}}",
+                "description": "user_ids 1 and 2 are Maya Chen (+15555550101) and Luis Ortega (+15555550102) after a fresh seed. Sending user_ids replaces the assignee list."
+            },
+            "response": []
+        },
+        {
+            "name": "Assign user",
+            "request": {
+                "auth": {
+                    "type": "bearer",
+                    "bearer": [
+                        {
+                            "key": "token",
+                            "value": "{{token}}",
+                            "type": "string"
+                        }
+                    ]
+                },
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "Accept",
+                        "value": "application/json"
+                    },
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n    \"user_id\": 2\n}",
+                    "options": {
+                        "raw": {
+                            "language": "json"
+                        }
+                    }
+                },
+                "url": "{{base_url}}/api/projects/{{project_id}}/users",
+                "description": "Assigns Luis Ortega (user 2, +15555550102). Assigning someone who is already on the project changes nothing."
+            },
+            "response": []
+        },
+        {
+            "name": "Unassign user",
+            "request": {
+                "auth": {
+                    "type": "bearer",
+                    "bearer": [
+                        {
+                            "key": "token",
+                            "value": "{{token}}",
+                            "type": "string"
+                        }
+                    ]
+                },
+                "method": "DELETE",
+                "header": [
+                    {
+                        "key": "Accept",
+                        "value": "application/json"
+                    }
+                ],
+                "url": "{{base_url}}/api/projects/{{project_id}}/users/2",
+                "description": "Removes Luis Ortega (user 2, +15555550102). The call is idempotent when that user is not assigned."
+            },
+            "response": []
+        },
+        {
+            "name": "Delete project",
+            "request": {
+                "auth": {
+                    "type": "bearer",
+                    "bearer": [
+                        {
+                            "key": "token",
+                            "value": "{{token}}",
+                            "type": "string"
+                        }
+                    ]
+                },
+                "method": "DELETE",
+                "header": [
+                    {
+                        "key": "Accept",
+                        "value": "application/json"
+                    }
+                ],
+                "url": "{{base_url}}/api/projects/{{project_id}}",
+                "description": "Deletes the project saved in {{project_id}}."
+            },
+            "response": []
+        }
+    ]
+}

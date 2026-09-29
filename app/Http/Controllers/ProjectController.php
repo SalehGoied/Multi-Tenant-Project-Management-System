@@ -8,19 +8,27 @@ use App\Actions\Projects\DeleteProject;
 use App\Actions\Projects\UnassignProjectUser;
 use App\Actions\Projects\UpdateProject;
 use App\Http\Requests\Projects\AssignProjectUserRequest;
+use App\Http\Requests\Projects\IndexProjectRequest;
 use App\Http\Requests\Projects\StoreProjectRequest;
 use App\Http\Requests\Projects\UpdateProjectRequest;
 use App\Http\Resources\ProjectResource;
 use App\Http\Responses\ApiResponse;
 use App\Models\Project;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 
 class ProjectController extends Controller
 {
-    public function index(): JsonResponse
+    public function index(IndexProjectRequest $request): JsonResponse
     {
+        $name = $request->validated('name');
+        $name = is_string($name) ? trim($name) : '';
+
         $projects = Project::query()
             ->with('users.company')
+            ->when($name !== '', function (Builder $query) use ($name): void {
+                $query->whereLike('name', '%'.$name.'%');
+            })
             ->orderByDesc('created_at')
             ->orderByDesc('id')
             ->paginate();
