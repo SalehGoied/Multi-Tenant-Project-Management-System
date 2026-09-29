@@ -499,7 +499,30 @@ One company per user. No roles beyond membership in that company. No self-regist
 
 ## Scalability
 
-At 10,000 companies and millions of rows, keep this shared database. Tenant lists already use the `company_id` composite index; large listings should move to cursor pagination. OTP delivery should move onto a queue. When more than one app server is running, the rate limiter should use a shared cache (Redis). Assignee relations are eager-loaded (`users.company`). A database per tenant is a later change only if physical isolation becomes a requirement; `company_id` is the shard key.
+At 10,000 companies and millions of rows, keep this shared database. Tenant lists already use the `company_id` composite index; large listings should move to cursor pagination. OTP delivery should move onto a queue. When more than one app server is running, the rate limiter should use a shared cache (Redis). Assignee relations are eager-loaded (`users`). A database per tenant is a later change only if physical isolation becomes a requirement; `company_id` is the shard key.
+
+### Verified locally
+
+Checked on this machine against MySQL 8.4.3. This is one PHP process, not a distributed load test.
+
+The project index query count stays flat. `tests/Feature/ProjectQueryCountTest.php` seeds one company with 2–3 assignees per project and calls `GET /api/projects`. Five projects and twenty projects both run 7 queries: the Sanctum token lookup, the token last-used update, the user, the caller’s company, the page count, the page of projects, and one eager load of `users` through `project_user`. Fifteen projects on the page still produce that single assignee query.
+
+`php artisan db:seed-benchmark` is a local-only command (`APP_ENV=local`). It is not called by `db:seed` and it does not run in tests. It chunk-inserts 500 companies, 5 users each, and 100,000 projects. Project names cycle through ten stems, including `Lighthouse audit`, so `?name=lighthouse` matches 20 of the 200 projects in a sample company. `php artisan migrate:fresh --seed` drops that dataset and restores the two-company seed.
+
+EXPLAIN on the queries that index runs for one of those companies (`company_id = 3`, 200 of the 100,000 rows):
+
+| Query | type | key | Extra |
+| --- | --- | --- | --- |
+| `count(*)` where `company_id = 3` | `ref` | `projects_company_id_created_at_id_index` | `Using index` |
+| page `order by created_at desc, id desc limit 15` | `ref` | `projects_company_id_created_at_id_index` | `Backward index scan` |
+| `count(*)` with `name like '%lighthouse%'` | `ref` | `projects_company_id_created_at_id_index` | `Using where` |
+| page with `name like '%lighthouse%'` | `ref` | `projects_company_id_created_at_id_index` | `Using where; Backward index scan` |
+
+None of the plans use `type: ALL`. `possible_keys` is only the composite index. EXPLAIN ANALYZE times: the unfiltered count finished in 0.043 ms (covering lookup of 200 rows) and the unfiltered page in 0.040 ms (15 rows). The filtered count finished in 0.294 ms after reading those 200 rows and keeping 20. The filtered page finished in 0.192 ms; it walked 146 index rows to collect 15 matches.
+
+`GET /api/projects` for that company, through `php artisan serve` on port 8000, returned 200. Five samples after one warmup: 201 ms, 203 ms, 182 ms, 177 ms, and 191 ms with no name filter (pagination total 200). With `?name=lighthouse`: 204 ms, 206 ms, 180 ms, 202 ms, and 189 ms (pagination total 20). The SQL above is under a millisecond, so almost all of the HTTP time is booting the application for the request.
+
+That matches the composite index and the `users` eager load. At 10,000 companies, with more than one app server, OTP delivery still belongs on a queue, the rate limiter still needs a shared cache, and large listings still want cursor pagination and a read replica. This check does not replace that.
 
 ## Testing
 
@@ -513,4 +536,4 @@ or:
 php artisan test
 ```
 
-Current status: 41 tests, 232 assertions, passing. Feature tests hit the HTTP API against in-memory SQLite. They cover tenant isolation (the scope returns nothing until a company is bound, and it fills `company_id` on create), the OTP lifecycle (hash at rest, no code in the response, unknown phones, single use, expiry, the fifth failed guess, the phone-and-IP throttle), cross-tenant project access (`404` on show, update, and delete, and `422` when assigning another company’s user), project name filtering (a substring matches only the current company), and the response envelope (including generic `404` and `500` bodies with debug turned on). Tests do not call `withoutGlobalScopes()` and do not send a company header.
+Current status: 42 tests, 325 assertions, passing. Feature tests hit the HTTP API against in-memory SQLite. They cover tenant isolation (the scope returns nothing until a company is bound, and it fills `company_id` on create), the OTP lifecycle (hash at rest, no code in the response, unknown phones, single use, expiry, the fifth failed guess, the phone-and-IP throttle), cross-tenant project access (`404` on show, update, and delete, and `422` when assigning another company’s user), project name filtering (a substring matches only the current company), a fixed query count when the project index eager-loads assignees, and the response envelope (including generic `404` and `500` bodies with debug turned on). Tests do not call `withoutGlobalScopes()` and do not send a company header.
